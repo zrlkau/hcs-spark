@@ -85,17 +85,20 @@ private[netty] class Inbox(
    * Process stored messages.
    */
   def process(dispatcher: Dispatcher): Unit = {
+
     var message: InboxMessage = null
     inbox.synchronized {
       if (!enableConcurrent && numActiveThreads != 0) {
         return
       }
+      //logInfo("[HCS] Inbox polling for new message " + endpointRef.toString + " (thread " + Thread.currentThread().getId + ")")
       message = messages.poll()
       if (message != null) {
         numActiveThreads += 1
       } else {
         return
       }
+      //logInfo("[HCS] Inbox received new message " + numActiveThreads + "/" + endpointRef.toString + " (thread " + Thread.currentThread().getId + ")")
     }
     while (true) {
       safelyCall(endpoint) {

@@ -59,6 +59,7 @@ private[spark] class Executor(
     uncaughtExceptionHandler: UncaughtExceptionHandler = SparkUncaughtExceptionHandler)
   extends Logging {
 
+  private val startTime = System.currentTimeMillis()
   logInfo(s"Starting executor ID $executorId on host $executorHostname")
 
   // Application dependencies (added through SparkContext) that we've fetched so far on this node.
@@ -167,6 +168,9 @@ private[spark] class Executor(
 
   private[executor] def numRunningTasks: Int = runningTasks.size()
 
+  private val endTime = System.currentTimeMillis()
+
+  logInfo("[HCS] Executor " + executorId + " startup time was " + (endTime - startTime) + " ms")
   def launchTask(context: ExecutorBackend, taskDescription: TaskDescription): Unit = {
     val tr = new TaskRunner(context, taskDescription)
     runningTasks.put(taskDescription.taskId, tr)
@@ -326,6 +330,8 @@ private[spark] class Executor(
         env.mapOutputTracker.updateEpoch(task.epoch)
 
         // Run the actual task and measure its runtime.
+        logInfo("[HCS] Starting task s" + task.stageId + "t" + task.partitionId + " at " + System.currentTimeMillis() + " on " + executorHostname + "/" + executorId)
+        val taskGbcStart = computeTotalGcTime()
         taskStart = System.currentTimeMillis()
         taskStartCpu = if (threadMXBean.isCurrentThreadCpuTimeSupported) {
           threadMXBean.getCurrentThreadCpuTime
@@ -371,10 +377,12 @@ private[spark] class Executor(
             s"swallowing Spark's internal ${classOf[FetchFailedException]}", fetchFailure)
         }
         val taskFinish = System.currentTimeMillis()
+        val taskGbcFinish = computeTotalGcTime()
         val taskFinishCpu = if (threadMXBean.isCurrentThreadCpuTimeSupported) {
           threadMXBean.getCurrentThreadCpuTime
         } else 0L
 
+        logInfo("[HCS] Finishing task s" + task.stageId + "t" + task.partitionId + " at " + System.currentTimeMillis() + " on " + executorHostname + "/" + executorId + ". Runtime " + (taskFinish - taskStart) + " ms, GBC time " + (taskGbcFinish-taskGbcStart) + " ms, CPU time " + ((taskFinishCpu-taskStartCpu)/1000000) + " ms")
         // If the task has been killed, let's fail it.
         task.context.killTaskIfInterrupted()
 
@@ -500,6 +508,11 @@ private[spark] class Executor(
       } finally {
         runningTasks.remove(taskId)
       }
+
+      val t0 = System.currentTimeMillis()
+      //System.gc()
+      val t1 = System.currentTimeMillis()
+      logInfo("[HCS] Finished run for task s" + task.stageId + "t" + task.partitionId + " at " + System.currentTimeMillis() + " on " + executorHostname + "/" + executorId + " (gc " + (t1-t0) + "ms)")
     }
 
     private def hasFetchFailure: Boolean = {

@@ -19,17 +19,15 @@ package org.apache.spark.rdd
 
 import java.util.Random
 
-import scala.collection.{mutable, Map}
+import scala.collection.{Map, mutable}
 import scala.collection.mutable.ArrayBuffer
 import scala.io.Codec
 import scala.language.implicitConversions
-import scala.reflect.{classTag, ClassTag}
-
+import scala.reflect.{ClassTag, classTag}
 import com.clearspring.analytics.stream.cardinality.HyperLogLogPlus
 import org.apache.hadoop.io.{BytesWritable, NullWritable, Text}
 import org.apache.hadoop.io.compress.CompressionCodec
 import org.apache.hadoop.mapred.TextOutputFormat
-
 import org.apache.spark._
 import org.apache.spark.Partitioner._
 import org.apache.spark.annotation.{DeveloperApi, Since}
@@ -42,8 +40,10 @@ import org.apache.spark.partial.PartialResult
 import org.apache.spark.storage.{RDDBlockId, StorageLevel}
 import org.apache.spark.util.{BoundedPriorityQueue, Utils}
 import org.apache.spark.util.collection.{OpenHashMap, Utils => collectionUtils}
-import org.apache.spark.util.random.{BernoulliCellSampler, BernoulliSampler, PoissonSampler,
-  SamplingUtils}
+import org.apache.spark.util.random.{BernoulliCellSampler, BernoulliSampler, PoissonSampler, SamplingUtils}
+
+import scala.collection.immutable.HashMap
+import scala.util.hashing.{Hashing, MurmurHash3}
 
 /**
  * A Resilient Distributed Dataset (RDD), the basic abstraction in Spark. Represents an immutable,
@@ -108,6 +108,16 @@ abstract class RDD[T: ClassTag](
   // Methods that should be implemented by subclasses of RDD
   // =======================================================================
 
+  def size : Long = {
+    var bytes : Long = 0L
+    for (p <- partitions) {
+      bytes += p.bytes
+    }
+    bytes
+  }
+
+  def key : Int = MurmurHash3.finalizeHash(MurmurHash3.listHash(MurmurHash3.stringHash(context.getCallSite().shortForm) :: dependencies.map(d => d.rdd.key).toList, 0), 0)
+
   /**
    * :: DeveloperApi ::
    * Implemented by subclasses to compute a given partition.
@@ -134,6 +144,12 @@ abstract class RDD[T: ClassTag](
    * Optionally overridden by subclasses to specify placement preferences.
    */
   protected def getPreferredLocations(split: Partition): Seq[String] = Nil
+
+  /**
+    * Optionally overridden by subclasses to specify where the data resides
+    */
+  def getLocations(split: Partition): mutable.HashMap[String, Long]
+    = mutable.HashMap[String, Long]()
 
   /** Optionally overridden by subclasses to specify how they are partitioned. */
   @transient val partitioner: Option[Partitioner] = None

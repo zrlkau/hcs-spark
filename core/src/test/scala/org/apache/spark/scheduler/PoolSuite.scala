@@ -46,7 +46,7 @@ class PoolSuite extends SparkFunSuite with LocalSparkContext {
     val nextTaskSetToSchedule =
       taskSetQueue.find(t => (t.runningTasks + t.tasksSuccessful) < t.numTasks)
     assert(nextTaskSetToSchedule.isDefined)
-    nextTaskSetToSchedule.get.addRunningTask(taskId)
+    nextTaskSetToSchedule.get.addRunningTask(taskId, -1)
     assert(nextTaskSetToSchedule.get.stageId === expectedStageId)
   }
 

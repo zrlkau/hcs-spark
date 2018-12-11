@@ -210,7 +210,11 @@ private[netty] class Dispatcher(nettyEnv: NettyRpcEnv) extends Logging {
               receivers.offer(PoisonPill)
               return
             }
+//            val t0 = System.currentTimeMillis()
+//            logInfo("[HCS] Pre-process message (thread " + Thread.currentThread().getId + ")")
             data.inbox.process(Dispatcher.this)
+//            val t1 = System.currentTimeMillis()
+//            logInfo("[HCS] Post-process message (thread " + Thread.currentThread().getId + " time " + (t1-t0) + "ms)")
           } catch {
             case NonFatal(e) => logError(e.getMessage, e)
           }

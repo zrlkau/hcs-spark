@@ -40,6 +40,7 @@ private[spark] class Pool(
   val weight = initWeight
   val minShare = initMinShare
   var runningTasks = 0
+  var finishedTasks = 0
   val priority = 0
 
   // A pool's stage id is used to break the tie in scheduling.
@@ -117,6 +118,13 @@ private[spark] class Pool(
     runningTasks -= taskNum
     if (parent != null) {
       parent.decreaseRunningTasks(taskNum)
+    }
+  }
+
+  def increaseFinishedTasks(taskNum: Int) {
+    finishedTasks += taskNum
+    if (parent != null) {
+      parent.increaseFinishedTasks(taskNum)
     }
   }
 }

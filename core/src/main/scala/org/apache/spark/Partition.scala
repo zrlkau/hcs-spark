@@ -26,6 +26,9 @@ trait Partition extends Serializable {
    */
   def index: Int
 
+  // Size of this partition (in bytes)
+  def bytes : Long = 0L
+
   // A better default implementation of HashCode
   override def hashCode(): Int = index
 

@@ -204,6 +204,7 @@ class SparkContext(config: SparkConf) extends Logging {
   private var _executorMemory: Int = _
   private var _schedulerBackend: SchedulerBackend = _
   private var _taskScheduler: TaskScheduler = _
+  private var _hcsScheduler: HcsSchedulerClient = _
   private var _heartbeatReceiver: RpcEndpointRef = _
   @volatile private var _dagScheduler: DAGScheduler = _
   private var _applicationId: String = _
@@ -304,6 +305,11 @@ class SparkContext(config: SparkConf) extends Logging {
   private[spark] def dagScheduler: DAGScheduler = _dagScheduler
   private[spark] def dagScheduler_=(ds: DAGScheduler): Unit = {
     _dagScheduler = ds
+  }
+
+  private[spark] def hcsScheduler: HcsSchedulerClient = _hcsScheduler
+  private[spark] def hcsScheduler_=(hs: HcsSchedulerClient): Unit = {
+    _hcsScheduler = hs
   }
 
   /**
@@ -503,6 +509,7 @@ class SparkContext(config: SparkConf) extends Logging {
     _taskScheduler = ts
     _dagScheduler = new DAGScheduler(this)
     _heartbeatReceiver.ask[Boolean](TaskSchedulerIsSet)
+    _hcsScheduler = new HcsSchedulerClient(this, sched)
 
     // start TaskScheduler after taskScheduler sets DAGScheduler reference in DAGScheduler's
     // constructor
@@ -2402,7 +2409,9 @@ class SparkContext(config: SparkConf) extends Logging {
 
   /** Post the application end event */
   private def postApplicationEnd() {
-    listenerBus.post(SparkListenerApplicationEnd(System.currentTimeMillis))
+    val endTime = System.currentTimeMillis
+    listenerBus.post(SparkListenerApplicationEnd(endTime))
+    //hcsScheduler.applicationFinishedEvent(applicationId, endTime)
   }
 
   /** Post the environment update event once the task scheduler is ready */

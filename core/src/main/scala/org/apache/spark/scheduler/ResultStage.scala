@@ -37,6 +37,11 @@ private[spark] class ResultStage(
     callSite: CallSite)
   extends Stage(id, rdd, partitions.length, parents, firstJobId, callSite) {
 
+  logInfo("[HCS] ResultStage " + id + " (rdd " + rdd.id + " deps on "
+    + rdd.dependencies.map(a => a.getClass.toString + "/" + a.rdd.id + ", ") + ") with anchestors "
+    + rdd.getNarrowAncestors.map(a => a.getClass.toString + "/" + a.id + ", ")
+    + "parents " + parents.toString())
+
   /**
    * The active job for this result stage. Will be empty if the job has already finished
    * (e.g., because the job was cancelled).

@@ -48,12 +48,26 @@ private[spark] class TaskDescription(
     val taskId: Long,
     val attemptNumber: Int,
     val executorId: String,
+    val startTime: Long,
     val name: String,
     val index: Int,    // Index within this task's TaskSet
     val addedFiles: Map[String, Long],
     val addedJars: Map[String, Long],
     val properties: Properties,
     val serializedTask: ByteBuffer) {
+
+  def this(taskId: Long,
+           attemptNumber: Int,
+           executorId: String,
+           name: String,
+           index: Int, // Index within this task's TaskSet
+           addedFiles: Map[String, Long],
+           addedJars: Map[String, Long],
+           properties: Properties,
+           serializedTask: ByteBuffer) {
+    this(taskId, attemptNumber, executorId, 0, name, index, addedFiles, addedJars, properties,
+      serializedTask)
+  }
 
   override def toString: String = "TaskDescription(TID=%d, index=%d)".format(taskId, index)
 }

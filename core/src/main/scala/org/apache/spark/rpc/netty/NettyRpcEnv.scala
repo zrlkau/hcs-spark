@@ -179,6 +179,7 @@ private[netty] class NettyRpcEnv(
   }
 
   private[netty] def send(message: RequestMessage): Unit = {
+    val t0 = System.currentTimeMillis()
     val remoteAddr = message.receiver.address
     if (remoteAddr == address) {
       // Message to a local RPC endpoint.
@@ -191,6 +192,8 @@ private[netty] class NettyRpcEnv(
       // Message to a remote RPC endpoint.
       postToOutbox(message.receiver, OneWayOutboxMessage(message.serialize(this)))
     }
+    val t1 = System.currentTimeMillis()
+    logInfo("[HCS] Posting of message " + message.receiver.toString + " took " + (t1-t0) + "ms")
   }
 
   private[netty] def createClient(address: RpcAddress): TransportClient = {

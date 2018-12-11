@@ -21,6 +21,8 @@ import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.rdd.{RDD, RDDOperationScope}
 import org.apache.spark.util.Utils
 
+import scala.collection.mutable.HashMap
+
 @DeveloperApi
 class RDDInfo(
     val id: Int,
@@ -28,10 +30,12 @@ class RDDInfo(
     val numPartitions: Int,
     var storageLevel: StorageLevel,
     val parentIds: Seq[Int],
+    val key : Int = 0,
     val callSite: String = "",
     val scope: Option[RDDOperationScope] = None)
   extends Ordered[RDDInfo] {
 
+  var locations : Array[HashMap[String, Long]] = new Array[HashMap[String, Long]](numPartitions)
   var numCachedPartitions = 0
   var memSize = 0L
   var diskSize = 0L
@@ -56,7 +60,11 @@ private[spark] object RDDInfo {
   def fromRdd(rdd: RDD[_]): RDDInfo = {
     val rddName = Option(rdd.name).getOrElse(Utils.getFormattedClassName(rdd))
     val parentIds = rdd.dependencies.map(_.rdd.id)
-    new RDDInfo(rdd.id, rddName, rdd.partitions.length,
-      rdd.getStorageLevel, parentIds, rdd.creationSite.shortForm, rdd.scope)
+    var info = new RDDInfo(rdd.id, rddName, rdd.partitions.length,
+      rdd.getStorageLevel, parentIds, rdd.key, rdd.creationSite.shortForm, rdd.scope)
+    for (p <- 0 until rdd.partitions.length) {
+      info.locations(p) = rdd.getLocations(rdd.partitions(p))
+    }
+    info
   }
 }

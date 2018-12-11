@@ -28,6 +28,9 @@ import org.apache.spark.annotation.DeveloperApi
 @DeveloperApi
 class TaskInfo(
     val taskId: Long,
+    val stageId: Int, // Added for HCS
+    val jobId: Int, // Added for HCS
+    val appId: String, // Added for HCS (technically this is one is not necessary)
     /**
      * The index of this task within its task set. Not necessarily the same as the ID of the RDD
      * partition that the task is computing.
@@ -40,6 +43,16 @@ class TaskInfo(
     val taskLocality: TaskLocality.TaskLocality,
     val speculative: Boolean) {
 
+  def this(taskId: Long,
+           index: Int,
+           attemptNumber: Int,
+           launchTime: Long,
+           executorId: String,
+           host: String,
+           taskLocality: TaskLocality.TaskLocality,
+           speculative: Boolean) {
+    this(taskId, 0, 0, "", index, attemptNumber, launchTime, executorId, host, taskLocality, speculative)
+  }
   /**
    * The time when the task started remotely getting the result. Will not be set if the
    * task result was sent immediately when the task finished (as opposed to sending an

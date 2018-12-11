@@ -23,15 +23,13 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 import scala.annotation.tailrec
-import scala.collection.Map
-import scala.collection.mutable.{HashMap, HashSet, Stack}
+import scala.collection.{Map, mutable}
+import scala.collection.mutable.{ArrayBuffer, HashMap, HashSet, ListBuffer, Stack}
 import scala.concurrent.duration._
 import scala.language.existentials
 import scala.language.postfixOps
 import scala.util.control.NonFatal
-
 import org.apache.commons.lang3.SerializationUtils
-
 import org.apache.spark._
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.executor.TaskMetrics
@@ -153,6 +151,9 @@ class DAGScheduler(
   // Stages we need to run whose parents aren't done
   private[scheduler] val waitingStages = new HashSet[Stage]
 
+  // Stages already submitted to HCS
+  private[scheduler] val submittedStages = new HashSet[Stage]
+
   // Stages we are running right now
   private[scheduler] val runningStages = new HashSet[Stage]
 
@@ -160,6 +161,10 @@ class DAGScheduler(
   private[scheduler] val failedStages = new HashSet[Stage]
 
   private[scheduler] val activeJobs = new HashSet[ActiveJob]
+  private[scheduler] val previousJobs = new mutable.ArrayBuffer[ActiveJob] // Added for HCS to connect jobs somehow
+
+  private[scheduler] val hcsClient = sc.hcsScheduler
+  private[scheduler] var appRegistered = false
 
   /**
    * Contains the locations that each RDD's partitions are cached on.  This map's keys are RDD ids
@@ -204,6 +209,7 @@ class DAGScheduler(
    * Called by the TaskSetManager to report task's starting.
    */
   def taskStarted(task: Task[_], taskInfo: TaskInfo) {
+    logInfo("[HCS] DAGScheduler was notified that task" + taskInfo.id + " started")
     eventProcessLoop.post(BeginEvent(task, taskInfo))
   }
 
@@ -224,6 +230,7 @@ class DAGScheduler(
       result: Any,
       accumUpdates: Seq[AccumulatorV2[_, _]],
       taskInfo: TaskInfo): Unit = {
+    logInfo("[HCS] Push task ended event for s" + task.stageId + "t" + task.partitionId + " on event queue.")
     eventProcessLoop.post(
       CompletionEvent(task, reason, result, accumUpdates, taskInfo))
   }
@@ -585,7 +592,12 @@ class DAGScheduler(
       // Return immediately if the job is running 0 tasks
       return new JobWaiter[U](this, jobId, 0, resultHandler)
     }
-
+/*
+    if (!appRegistered) {
+      hcsClient.submitApplication(sc.applicationId, sc.appName)
+      appRegistered = true
+    }
+*/
     assert(partitions.size > 0)
     val func2 = func.asInstanceOf[(TaskContext, Iterator[_]) => _]
     val waiter = new JobWaiter(this, jobId, partitions.size, resultHandler)
@@ -856,6 +868,7 @@ class DAGScheduler(
     }
 
     val job = new ActiveJob(jobId, finalStage, callSite, listener, properties)
+
     clearCacheLocs()
     logInfo("Got job %s (%s) with %d output partitions".format(
       job.jobId, callSite.shortForm, partitions.length))
@@ -866,9 +879,21 @@ class DAGScheduler(
     val jobSubmissionTime = clock.getTimeMillis()
     jobIdToActiveJob(jobId) = job
     activeJobs += job
+
     finalStage.setActiveJob(job)
     val stageIds = jobIdToStageIds(jobId).toArray
     val stageInfos = stageIds.flatMap(id => stageIdToStage.get(id).map(_.latestInfo))
+
+    // [HCS] Figure out job dependencies. HCS needs to know that because it requires an
+    // application to be one complete DAG (also it needs it to determine data dependencies).
+    val dependencies = ListBuffer[ActiveJob]()
+    if (previousJobs.size > 0) {
+      dependencies += previousJobs(previousJobs.size-1)
+    }
+
+    //hcsClient.submitJob(sc.applicationId, jobId, dependencies.toList)
+    previousJobs += jobIdToActiveJob(jobId)
+
     listenerBus.post(
       SparkListenerJobStart(job.jobId, jobSubmissionTime, stageInfos, properties))
     submitStage(finalStage)
@@ -916,10 +941,31 @@ class DAGScheduler(
       markMapStageJobAsFinished(job, mapOutputTracker.getStatistics(dependency))
     }
   }
+/*
+  /** Submits job stage DAG */
+  private def submitStageDAG(stage: Stage, jobId : Int): Unit = {
+    val missing = getMissingParentStages(stage).sortBy(_.id)
 
+    for (parent <- missing) {
+      submitStageDAG(parent, jobId)
+    }
+/*
+    if (!submittedStages(stage)) {
+      hcsClient.submitStage(sc.applicationId, jobId, stage, stage.numTasks, missing,
+        (stage.id == jobIdToActiveJob(jobId).finalStage.id))
+      submittedStages += stage
+    }
+    */
+  }
+  */
   /** Submits stage, but first recursively submits any missing parents. */
   private def submitStage(stage: Stage) {
     val jobId = activeJobForStage(stage)
+/*
+    if (stage.id == jobIdToActiveJob(jobId.get).finalStage.id) {
+      submitStageDAG(stage, jobId.get)
+    }
+*/
     if (jobId.isDefined) {
       logDebug("submitStage(" + stage + ")")
       if (!waitingStages(stage) && !runningStages(stage) && !failedStages(stage)) {
@@ -950,6 +996,11 @@ class DAGScheduler(
     // Use the scheduling pool, job group, description, etc. from an ActiveJob associated
     // with this Stage
     val properties = jobIdToActiveJob(jobId).properties
+
+    var taskList = ListBuffer[Int]()
+    partitionsToCompute.map { id => taskList += id }
+
+    //hcsClient.submitTasks(sc.applicationId, jobId, stage, taskList.toList)
 
     runningStages += stage
     // SparkListenerStageSubmitted should be posted before testing whether tasks are
@@ -1026,6 +1077,7 @@ class DAGScheduler(
           partitionsToCompute.map { id =>
             val locs = taskIdToLocations(id)
             val part = stage.rdd.partitions(id)
+
             stage.pendingPartitions += id
             new ShuffleMapTask(stage.id, stage.latestInfo.attemptId,
               taskBinary, part, locs, properties, serializedTaskMetrics, Option(jobId),
@@ -1126,6 +1178,7 @@ class DAGScheduler(
         null
       }
 
+    logInfo("[HCS] Posting SparkListenerTaskEnd for s" + event.task.stageId + "t" + event.task.partitionId + " / " + event.taskInfo.taskId)
     listenerBus.post(SparkListenerTaskEnd(event.task.stageId, event.task.stageAttemptId,
       Utils.getFormattedClassName(event.task), event.reason, event.taskInfo, taskMetrics))
   }

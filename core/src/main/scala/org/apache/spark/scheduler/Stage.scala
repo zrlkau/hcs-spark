@@ -18,11 +18,12 @@
 package org.apache.spark.scheduler
 
 import scala.collection.mutable.HashSet
-
 import org.apache.spark.executor.TaskMetrics
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.util.CallSite
+
+import scala.util.hashing.MurmurHash3
 
 /**
  * A stage is a set of parallel tasks all computing the same function that need to run as part
@@ -73,6 +74,10 @@ private[scheduler] abstract class Stage(
   val name: String = callSite.shortForm
   val details: String = callSite.longForm
 
+  val key: Int = MurmurHash3.listHash(rdd.key :: MurmurHash3.stringHash(name) :: parents.map(p => p.key), 0)
+//  logInfo("[HCS] Stage " + id + " key " + key + " : Combining  " + rdd.getClass.toString + " " + rdd.id + " key " + rdd.key
+//    + " name " + name + " parents {" + parents.map(p => p.id + "/" + p.key).mkString(", ")
+//    + "}")
   /**
    * Pointer to the [[StageInfo]] object for the most recent attempt. This needs to be initialized
    * here, before any attempts have actually been created, because the DAGScheduler uses this

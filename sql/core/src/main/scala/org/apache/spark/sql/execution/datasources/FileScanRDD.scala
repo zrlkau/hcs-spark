@@ -20,14 +20,16 @@ package org.apache.spark.sql.execution.datasources
 import java.io.{FileNotFoundException, IOException}
 
 import scala.collection.mutable
-
-import org.apache.spark.{Partition => RDDPartition, TaskContext, TaskKilledException}
+import org.apache.spark.{TaskContext, TaskKilledException, Partition => RDDPartition}
 import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.rdd.{InputFileBlockHolder, RDD}
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.vectorized.ColumnarBatch
 import org.apache.spark.util.NextIterator
+
+import scala.collection.immutable.HashMap
+import scala.util.hashing.MurmurHash3
 
 /**
  * A part (i.e. "block") of a single file that should be read, along with partition column values
@@ -54,7 +56,15 @@ case class PartitionedFile(
  * A collection of file blocks that should be read as a single task
  * (possibly from multiple partitioned directories).
  */
-case class FilePartition(index: Int, files: Seq[PartitionedFile]) extends RDDPartition
+case class FilePartition(index: Int, files: Seq[PartitionedFile]) extends RDDPartition {
+  override def bytes : Long = {
+    var n : Long = 0L
+    for (file <- files) {
+      n += file.length
+    }
+    n
+  }
+}
 
 /**
  * An RDD that scans a list of file partitions.
@@ -66,6 +76,8 @@ class FileScanRDD(
   extends RDD[InternalRow](sparkSession.sparkContext, Nil) {
 
   private val ignoreCorruptFiles = sparkSession.sessionState.conf.ignoreCorruptFiles
+
+  override def key: Int = MurmurHash3.finalizeHash(MurmurHash3.stringHash(filePartitions.map(fp => fp.files.map(f => f.filePath).mkString(",")).mkString(",")), 0)
 
   override def compute(split: RDDPartition, context: TaskContext): Iterator[InternalRow] = {
     val iterator = new Iterator[Object] with AutoCloseable {
@@ -196,6 +208,20 @@ class FileScanRDD(
   }
 
   override protected def getPartitions: Array[RDDPartition] = filePartitions.toArray
+
+  override def getLocations(split: RDDPartition): mutable.HashMap[String, Long] = {
+    val files = split.asInstanceOf[FilePartition].files
+
+    // Computes total number of bytes can be retrieved from each host.
+    val hostToNumBytes = mutable.HashMap.empty[String, Long]
+    files.foreach { file =>
+      file.locations.filter(_ != "localhost").foreach { host =>
+        hostToNumBytes(host) = hostToNumBytes.getOrElse(host, 0L) + file.length
+      }
+    }
+
+    hostToNumBytes
+  }
 
   override protected def getPreferredLocations(split: RDDPartition): Seq[String] = {
     val files = split.asInstanceOf[FilePartition].files

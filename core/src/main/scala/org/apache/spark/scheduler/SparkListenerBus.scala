@@ -28,6 +28,7 @@ private[spark] trait SparkListenerBus
   protected override def doPostEvent(
       listener: SparkListenerInterface,
       event: SparkListenerEvent): Unit = {
+//    val startTime = System.currentTimeMillis()
     event match {
       case stageSubmitted: SparkListenerStageSubmitted =>
         listener.onStageSubmitted(stageSubmitted)
@@ -74,6 +75,8 @@ private[spark] trait SparkListenerBus
       case logStart: SparkListenerLogStart => // ignore event log metadata
       case _ => listener.onOtherEvent(event)
     }
+//    val endTime = System.currentTimeMillis()
+//    logInfo("[HCS] Event " + event.toString + " took " + (endTime - startTime) + " ms to process on " + listener.toString)
   }
 
 }
